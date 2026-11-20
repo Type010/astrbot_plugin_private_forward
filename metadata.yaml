@@ -1,0 +1,8 @@
+name: astrbot_plugin_private_forward
+display_name: 私聊嵌套转发
+desc: 私聊发送“转发 <群号> [层数]”，把后续消息以嵌套合并转发发送到指定群聊
+version: v1.0.0
+author: 本地自研
+support_platforms:
+  - aiocqhttp
+astrbot_version: ">=4.12.0"

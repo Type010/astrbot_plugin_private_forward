@@ -1,0 +1,71 @@
+{
+  "allowed_user_ids": {
+    "description": "允许使用转发功能的用户 QQ 号",
+    "type": "list",
+    "default": [],
+    "hint": "留空时仅 AstrBot 管理员可以使用；填写后这些 QQ 也可以使用"
+  },
+  "allowed_group_ids": {
+    "description": "允许作为转发目标的群号",
+    "type": "list",
+    "default": [],
+    "hint": "留空表示不限制；建议只填写自己的群，避免被用来向任意群转发"
+  },
+  "default_depth": {
+    "description": "默认嵌套层数",
+    "type": "int",
+    "default": 1,
+    "slider": {
+      "min": 1,
+      "max": 3,
+      "step": 1
+    },
+    "hint": "发送“转发 <群号>”不写层数时使用"
+  },
+  "max_depth": {
+    "description": "最大嵌套层数",
+    "type": "int",
+    "default": 3,
+    "slider": {
+      "min": 1,
+      "max": 3,
+      "step": 1
+    },
+    "hint": "SnowLuma 最多支持 3 层合并转发，超过会被接口拒绝"
+  },
+  "session_timeout_seconds": {
+    "description": "转发会话超时时间（秒）",
+    "type": "int",
+    "default": 600,
+    "hint": "超时后需要重新发送“转发”开启"
+  },
+  "min_interval_seconds": {
+    "description": "同一用户两条转发之间的最小间隔（秒）",
+    "type": "int",
+    "default": 2,
+    "hint": "防止连续刷屏；设为 0 关闭限速"
+  },
+  "max_messages_per_session": {
+    "description": "单次会话最多转发消息数",
+    "type": "int",
+    "default": 50,
+    "hint": "达到上限后自动结束会话；设为 0 表示不限制"
+  },
+  "include_reply_text": {
+    "description": "转发时附带被引用消息的文本",
+    "type": "bool",
+    "default": true
+  },
+  "max_reply_text_chars": {
+    "description": "引用文本最大长度",
+    "type": "int",
+    "default": 200,
+    "hint": "超过后截断，避免单条转发内容过长"
+  },
+  "send_ack": {
+    "description": "每次转发成功后私聊回复“已转发”",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后每条消息都会多一条私聊回复"
+  }
+}
