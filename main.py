@@ -341,6 +341,42 @@ class PrivateForwardPlugin(Star):
             event.stop_event()
             return
 
+        bot_id = str(event.get_self_id() or "").strip()
+        if bot_id.isdigit():
+            try:
+                bot_info = await self._call_action(
+                    event,
+                    "get_group_member_info",
+                    group_id=int(group_id),
+                    user_id=int(bot_id),
+                )
+                if not isinstance(bot_info, dict) or not bot_info:
+                    raise RuntimeError("未返回成员信息")
+            except Exception as exc:
+                yield event.plain_result(
+                    f"机器人不在群 {group_id}，或无法读取机器人的群成员信息，无法转发：{exc}"
+                )
+                event.stop_event()
+                return
+
+        membership_note = ""
+        if owner_id.isdigit():
+            try:
+                owner_info = await self._call_action(
+                    event,
+                    "get_group_member_info",
+                    group_id=int(group_id),
+                    user_id=int(owner_id),
+                )
+                if not isinstance(owner_info, dict) or not owner_info:
+                    raise RuntimeError("未返回成员信息")
+            except Exception:
+                membership_note = (
+                    "\n注意：无法确认你是否在目标群。"
+                    "如果你不在群里，QQ 可能不会确认这条合并转发；"
+                    "建议先加群，或开启匿名使用机器人身份。"
+                )
+
         now = time.time()
         timeout = max(30, self._get_int("session_timeout_seconds", 600))
         self.sessions[owner_id] = ForwardSession(
@@ -360,6 +396,7 @@ class PrivateForwardPlugin(Star):
             f"目标群：{group_id}\n"
             f"嵌套层数：{selected_depth}\n"
             f"发送完请发“结束转发”，届时会把本次收集的消息合并成一条转发发送。{note}"
+            f"{membership_note}"
         )
         event.stop_event()
 
@@ -407,7 +444,7 @@ class PrivateForwardPlugin(Star):
             # SnowLuma 在 QQ 返回 result=0 但缺 groupSequence 时抛这个错误。
             # 此时 QQ 已接受请求，消息大概率已经送达；可按已发送处理并清空缓存。
             if (
-                self._get_bool("treat_unconfirmed_as_sent", True)
+                self._get_bool("treat_unconfirmed_as_sent", False)
                 and "group message delivery was not confirmed" in message
             ):
                 self.sessions.pop(user_id, None)

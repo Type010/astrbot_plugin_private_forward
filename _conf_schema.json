@@ -83,7 +83,7 @@
   "treat_unconfirmed_as_sent": {
     "description": "QQ 未返回群序号时视为已发送",
     "type": "bool",
-    "default": true,
-    "hint": "SnowLuma 在 QQ 返回 result=0 但缺 groupSequence 时会报“delivery was not confirmed”。开启后插件按已发送处理并清空缓存；如果目标群实际没收到，请重新收集发送。关闭则保留消息并报错，可重试"
+    "default": false,
+    "hint": "默认关闭，避免把实际没发出的消息当成成功。只有确认目标群能收到、只是缺回执时才建议开启。关闭时保留消息并报错，可重试"
   }
 }

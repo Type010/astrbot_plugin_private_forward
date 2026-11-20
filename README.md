@@ -38,11 +38,11 @@
 
 “停止转发”是“结束转发”的别名，效果相同。
 
-如果提示 `group message delivery was not confirmed`，说明 SnowLuma 收到了 QQ 的 `result=0`，但没有拿到 `groupSequence`。插件默认 `treat_unconfirmed_as_sent=true`，会按“已提交发送”处理并清空缓存：
+如果提示 `group message delivery was not confirmed`，说明 SnowLuma 收到了 QQ 的 `result=0`，但没有拿到 `groupSequence`。这**不代表消息已经发出**；默认会保留消息并报错：
 
-- 先到目标群确认是否出现；
-- 如果没出现，重新收集发送；
-- 把 `treat_unconfirmed_as_sent` 设为 `false`，可以改为保留消息并报错，由你手动重试。
+- 先去目标群确认是否出现；
+- 没出现可以再次发送 `结束转发` 重试；
+- 只有确认目标群能收到、只是缺回执时，才把 `treat_unconfirmed_as_sent` 设为 `true`，按已发送处理并清空缓存。
 
 也可以随时查看已收集条数：
 
@@ -106,7 +106,7 @@ SnowLuma 会把 `user_id <= 0` 替换成机器人自己的 QQ，所以不要填 
 | `include_reply_text` | `true` | 是否附带引用文本 |
 | `max_reply_text_chars` | `200` | 引用文本截断长度 |
 | `send_ack` | `false` | 每收集一条是否私聊回复当前条数 |
-| `treat_unconfirmed_as_sent` | `true` | QQ 返回 result=0 但缺 groupSequence 时，按已发送处理并清空缓存 |
+| `treat_unconfirmed_as_sent` | `false` | 只有确认群能收到、只是缺回执时才开启；默认保留消息并报错 |
 
 ## 权限与安全
 
@@ -114,7 +114,7 @@ SnowLuma 会把 `user_id <= 0` 替换成机器人自己的 QQ，所以不要填 
 - 建议配置 `allowed_group_ids`，只允许转发到自己的群，避免被用于向任意群发广告。
 - 私聊会话按用户隔离，A 用户开启后不会影响 B 用户。
 - 收集阶段不会调用群接口；只有发送“结束转发”时才真正发到群里。
-- 合并发送成功后会清除会话；未确认回执且 `treat_unconfirmed_as_sent=true` 时也会清除；其他失败会保留消息，可再次发送“结束转发”重试。
+- 合并发送成功后会清除会话；未确认回执默认保留消息并报错，可重试。
 - 会话超时会丢弃未发送消息，请留意 `转发状态` 里的剩余时间。
 
 ## 常见问题
@@ -128,11 +128,17 @@ SnowLuma 会把 `user_id <= 0` 替换成机器人自己的 QQ，所以不要填 
 **提示“无法访问群”**  
 机器人不在该群，或 OneBot 的 `get_group_info` 不可用。先把机器人拉进目标群。
 
+**开启时提示“机器人不在群”**  
+插件会用 `get_group_member_info` 检查机器人是否是目标群成员；检查失败会拒绝开启。确认机器人已被拉进群，并且 OneBot 的成员接口正常。
+
+**开启时提示“无法确认你是否在目标群”**  
+私聊账号没有查到目标群成员信息。转发节点会带这个 QQ；如果它不在群里，QQ 可能不确认合并转发。先把私聊账号拉进群，或开启 `hide_sender_info` 并使用 `anonymous_user_id=0`（机器人身份）。
+
 **提示“合并转发失败：forward nesting depth exceeds 3”**  
 层数超过 SnowLuma 上限，改成 1–3。
 
 **提示“group message delivery was not confirmed”**  
-SnowLuma 收到 `result=0` 但缺 `groupSequence`。默认按已发送处理并清空缓存；先去目标群确认，没看到就重新收集发送。设为 `treat_unconfirmed_as_sent=false` 可改为保留消息并报错重试。
+SnowLuma 收到 `result=0` 但缺 `groupSequence`。这不一定代表已送达；默认保留消息并报错。先去目标群确认，没看到就重试；确认只是缺回执时才把 `treat_unconfirmed_as_sent` 设为 `true`。
 
 **匿名后发送失败**  
 `anonymous_user_id` 填了一个 QQ 不认的号时，可能拿不到发送回执。先试 `hide_sender_info=false` 确认正常发送，再换一个真实存在的、带头像要求的匿名 QQ 号，或填 `0` 让 SnowLuma 使用机器人自己的 QQ。注意填 0 会显示机器人头像。
