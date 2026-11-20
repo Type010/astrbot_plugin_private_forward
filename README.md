@@ -38,10 +38,11 @@
 
 “停止转发”是“结束转发”的别名，效果相同。
 
-如果发送失败提示 `group message delivery was not confirmed`，QQ 可能已经收到这条转发。请先去目标群确认：
+如果提示 `group message delivery was not confirmed`，说明 SnowLuma 收到了 QQ 的 `result=0`，但没有拿到 `groupSequence`。插件默认 `treat_unconfirmed_as_sent=true`，会按“已提交发送”处理并清空缓存：
 
-- 群里已经出现：**不要重复发送**，否则会出现两条；等待会话超时或重启插件清除缓存；
-- 群里没有出现：可以再次发送 `结束转发` 重试。
+- 先到目标群确认是否出现；
+- 如果没出现，重新收集发送；
+- 把 `treat_unconfirmed_as_sent` 设为 `false`，可以改为保留消息并报错，由你手动重试。
 
 也可以随时查看已收集条数：
 
@@ -105,6 +106,7 @@ SnowLuma 会把 `user_id <= 0` 替换成机器人自己的 QQ，所以不要填 
 | `include_reply_text` | `true` | 是否附带引用文本 |
 | `max_reply_text_chars` | `200` | 引用文本截断长度 |
 | `send_ack` | `false` | 每收集一条是否私聊回复当前条数 |
+| `treat_unconfirmed_as_sent` | `true` | QQ 返回 result=0 但缺 groupSequence 时，按已发送处理并清空缓存 |
 
 ## 权限与安全
 
@@ -112,7 +114,7 @@ SnowLuma 会把 `user_id <= 0` 替换成机器人自己的 QQ，所以不要填 
 - 建议配置 `allowed_group_ids`，只允许转发到自己的群，避免被用于向任意群发广告。
 - 私聊会话按用户隔离，A 用户开启后不会影响 B 用户。
 - 收集阶段不会调用群接口；只有发送“结束转发”时才真正发到群里。
-- 合并发送成功后会清除会话；发送失败会保留消息，可再次发送“结束转发”重试。
+- 合并发送成功后会清除会话；未确认回执且 `treat_unconfirmed_as_sent=true` 时也会清除；其他失败会保留消息，可再次发送“结束转发”重试。
 - 会话超时会丢弃未发送消息，请留意 `转发状态` 里的剩余时间。
 
 ## 常见问题
@@ -130,7 +132,7 @@ SnowLuma 会把 `user_id <= 0` 替换成机器人自己的 QQ，所以不要填 
 层数超过 SnowLuma 上限，改成 1–3。
 
 **提示“group message delivery was not confirmed”**  
-SnowLuma 没拿到 QQ 的 groupSequence 回执。消息可能已经发出，先去目标群确认；已经出现就不要重试，否则可能重复；没出现再重试。
+SnowLuma 收到 `result=0` 但缺 `groupSequence`。默认按已发送处理并清空缓存；先去目标群确认，没看到就重新收集发送。设为 `treat_unconfirmed_as_sent=false` 可改为保留消息并报错重试。
 
 **匿名后发送失败**  
 `anonymous_user_id` 填了一个 QQ 不认的号时，可能拿不到发送回执。先试 `hide_sender_info=false` 确认正常发送，再换一个真实存在的、带头像要求的匿名 QQ 号，或填 `0` 让 SnowLuma 使用机器人自己的 QQ。注意填 0 会显示机器人头像。

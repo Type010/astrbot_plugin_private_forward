@@ -403,6 +403,24 @@ class PrivateForwardPlugin(Star):
                 messages=self._build_merged_messages(session),
             )
         except Exception as exc:
+            message = str(exc)
+            # SnowLuma 在 QQ 返回 result=0 但缺 groupSequence 时抛这个错误。
+            # 此时 QQ 已接受请求，消息大概率已经送达；可按已发送处理并清空缓存。
+            if (
+                self._get_bool("treat_unconfirmed_as_sent", True)
+                and "group message delivery was not confirmed" in message
+            ):
+                self.sessions.pop(user_id, None)
+                logger.warning(
+                    f"[private_forward] 群 {session.group_id} 未返回 groupSequence，按已发送处理"
+                )
+                yield event.plain_result(
+                    f"已提交 {count} 条消息的合并转发，但 QQ 未返回群序号回执。\n"
+                    "请到目标群确认；如果没看到，请重新收集发送。"
+                )
+                event.stop_event()
+                return
+
             session.expires_at = time.time() + max(
                 30, self._get_int("session_timeout_seconds", 600)
             )
@@ -411,8 +429,7 @@ class PrivateForwardPlugin(Star):
             )
             yield event.plain_result(
                 f"合并转发失败：{exc}\n"
-                "QQ 可能已经收到这条转发，请先去目标群确认。\n"
-                "如果群里已经出现，请勿重复发送；如果没出现，可再次发送“结束转发”重试。"
+                "消息仍保留，可再次发送“结束转发”重试。"
             )
             event.stop_event()
             return

@@ -1,7 +1,7 @@
 name: astrbot_plugin_private_forward
 display_name: 私聊嵌套转发
 desc: 私聊发送“转发 <群号> [层数]”开始收集，发送“结束转发”后将本次消息合并为嵌套转发发送到指定群聊；支持隐藏发送者 QQ、头像和昵称
-version: v1.2.2
+version: v1.3.0
 author: Type010
 repo: https://github.com/Type010/astrbot_plugin_private_forward
 support_platforms:
