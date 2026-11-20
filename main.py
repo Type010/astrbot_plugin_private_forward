@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -133,7 +135,113 @@ class PrivateForwardPlugin(Star):
                 return value
         return None
 
+    @staticmethod
+    def _raw_image_ref(data: dict) -> str | None:
+        """从 OneBot 原始 image 段里取一个可用的图片引用。"""
+        for key in ("url", "file"):
+            value = str(data.get(key) or "").strip()
+            if value.startswith(
+                ("http://", "https://", "base64://", "data:", "file://")
+            ):
+                return value
+
+        # AstrBot 预处理后的本地文件（如果恰好可见）
+        path = str(data.get("path") or "").strip()
+        if path and os.path.isfile(path):
+            try:
+                with open(path, "rb") as file_obj:
+                    encoded = base64.b64encode(file_obj.read()).decode()
+                return f"base64://{encoded}"
+            except Exception as exc:
+                logger.debug(f"[private_forward] 读取本地图片失败: {exc}")
+        return None
+
+    def _raw_to_segments(self, event: AstrMessageEvent) -> list[dict]:
+        """直接读 OneBot 原始 message 数组。
+
+        AstrBot 4.29.x 对部分 SnowLuma image 段的解析会失败，导致
+        event.get_messages() 为空，整条图片消息变成 [空消息]。
+        这里用原始段兜底，保证图片/文本/At 能进入合并转发。
+        """
+        raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        if not isinstance(raw, dict):
+            return []
+        message = raw.get("message")
+        if not isinstance(message, list):
+            return []
+
+        include_reply = self._get_bool("include_reply_text", True)
+        max_reply_chars = self._get_int("max_reply_text_chars", 200)
+
+        reply_text = ""
+        for comp in event.get_messages():
+            if isinstance(comp, Reply):
+                reply_text = str(getattr(comp, "message_str", "") or "").strip()
+                break
+
+        segments: list[dict] = []
+        for raw_seg in message:
+            if not isinstance(raw_seg, dict):
+                continue
+            seg_type = str(raw_seg.get("type") or "").lower()
+            data = raw_seg.get("data")
+            if not isinstance(data, dict):
+                data = {}
+
+            if seg_type == "text":
+                text = str(data.get("text") or "")
+                if text:
+                    segments.append({"type": "text", "data": {"text": text}})
+            elif seg_type == "image":
+                ref = self._raw_image_ref(data)
+                if ref:
+                    segments.append({"type": "image", "data": {"file": ref}})
+                else:
+                    segments.append({"type": "text", "data": {"text": "[图片]"}})
+            elif seg_type == "at":
+                qq = str(data.get("qq") or "")
+                if qq == "all":
+                    segments.append(
+                        {"type": "text", "data": {"text": "@全体成员"}}
+                    )
+                elif qq:
+                    segments.append({"type": "at", "data": {"qq": qq}})
+            elif seg_type == "reply":
+                if include_reply:
+                    text = reply_text
+                    if max_reply_chars > 0 and len(text) > max_reply_chars:
+                        text = text[:max_reply_chars] + "…"
+                    segments.append(
+                        {
+                            "type": "text",
+                            "data": {"text": f"[引用] {text}" if text else "[引用]"},
+                        }
+                    )
+            else:
+                placeholder = {
+                    "face": "[表情]",
+                    "mface": "[表情]",
+                    "record": "[语音]",
+                    "video": "[视频]",
+                    "file": "[文件]",
+                    "forward": "[合并转发]",
+                    "node": "[合并转发]",
+                    "json": "[卡片]",
+                    "xml": "[卡片]",
+                    "markdown": "[Markdown]",
+                }.get(seg_type)
+                if placeholder:
+                    segments.append(
+                        {"type": "text", "data": {"text": placeholder}}
+                    )
+
+        return segments
+
     async def _to_segments(self, event: AstrMessageEvent) -> list[dict]:
+        raw_segments = self._raw_to_segments(event)
+        if raw_segments:
+            return raw_segments
+
         segments: list[dict] = []
         include_reply = self._get_bool("include_reply_text", True)
         max_reply_chars = self._get_int("max_reply_text_chars", 200)
