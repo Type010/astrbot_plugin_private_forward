@@ -38,6 +38,23 @@
 
 “停止转发”是“结束转发”的别名，效果相同。
 
+如果发送失败提示 `group message delivery was not confirmed`，QQ 可能已经收到这条转发。请先去目标群确认：
+
+- 群里已经出现：发送 `取消转发` 丢弃缓存，**不要重复发送**，否则会出现两条；
+- 群里没有出现：可以再次发送 `结束转发` 重试。
+
+丢弃缓存：
+
+```text
+取消转发
+```
+
+或：
+
+```text
+丢弃转发
+```
+
 也可以随时查看已收集条数：
 
 ```text
@@ -123,6 +140,12 @@ SnowLuma 会把 `user_id <= 0` 替换成机器人自己的 QQ，所以不要填 
 
 **提示“合并转发失败：forward nesting depth exceeds 3”**  
 层数超过 SnowLuma 上限，改成 1–3。
+
+**提示“group message delivery was not confirmed”**  
+SnowLuma 没拿到 QQ 的 groupSequence 回执。消息可能已经发出，先去目标群确认；已经出现就发“取消转发”丢弃缓存，不要重试，否则可能重复。没出现再重试。
+
+**匿名后发送失败**  
+`anonymous_user_id` 填了一个 QQ 不认的号时，可能拿不到发送回执。先试 `hide_sender_info=false` 确认正常发送，再换一个真实存在的、带头像要求的匿名 QQ 号，或填 `0` 让 SnowLuma 使用机器人自己的 QQ。注意填 0 会显示机器人头像。
 
 **图片变成 `[图片]` 占位**  
 图片转换 base64 失败，或不是可访问的 http/base64 图片。看 AstrBot 日志里的 `[private_forward]` 调试信息。

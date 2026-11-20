@@ -12,7 +12,7 @@ from astrbot.core.message.components import At, Image, Plain, Reply
 from astrbot.core.star.filter.event_message_type import EventMessageType
 
 
-COMMAND_WORDS = {"转发", "结束转发", "停止转发", "转发状态"}
+COMMAND_WORDS = {"转发", "结束转发", "停止转发", "取消转发", "丢弃转发", "转发状态"}
 MAX_HARD_DEPTH = 3
 
 
@@ -266,6 +266,7 @@ class PrivateForwardPlugin(Star):
             "用法：\n"
             "转发 <群号> [嵌套层数 1-3]   开始收集消息\n"
             "结束转发 / 停止转发           把已收集消息合并发送到目标群\n"
+            "取消转发 / 丢弃转发           丢弃已收集消息，不发送\n"
             "转发状态                     查看已收集条数"
         )
 
@@ -410,7 +411,10 @@ class PrivateForwardPlugin(Star):
                 f"[private_forward] 合并转发到群 {session.group_id} 失败: {exc}"
             )
             yield event.plain_result(
-                f"合并转发失败：{exc}\n消息仍保留，可再次发送“结束转发”重试。"
+                f"合并转发失败：{exc}\n"
+                "QQ 可能已经收到这条转发，请先去目标群确认。\n"
+                "如果群里已经出现，请发送“取消转发”丢弃缓存，不要重复发送；"
+                "如果没出现，可再次发送“结束转发”重试。"
             )
             event.stop_event()
             return
@@ -420,6 +424,24 @@ class PrivateForwardPlugin(Star):
             f"已合并转发 {count} 条消息到群 {session.group_id}"
             f"（嵌套 {session.depth} 层）。"
         )
+        event.stop_event()
+
+    @filter.command("取消转发", alias={"丢弃转发"})
+    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP)
+    async def cancel_forward(self, event: AstrMessageEvent):
+        """丢弃已收集消息，不发送"""
+        if not event.is_private_chat():
+            yield event.plain_result("请在私聊中使用“取消转发”。")
+            event.stop_event()
+            return
+
+        session = self.sessions.pop(str(event.get_sender_id()), None)
+        if session:
+            yield event.plain_result(
+                f"已取消转发，丢弃 {len(session.messages)} 条未发送消息。"
+            )
+        else:
+            yield event.plain_result("当前没有进行中的转发会话。")
         event.stop_event()
 
     @filter.command("转发状态")
