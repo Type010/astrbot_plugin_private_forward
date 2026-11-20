@@ -172,25 +172,10 @@ class PrivateForwardPlugin(Star):
                 logger.debug(f"[private_forward] 读取本地图片失败: {exc}")
         return None
 
-    def _raw_to_segments(self, event: AstrMessageEvent) -> list[dict]:
-        """直接读 OneBot 原始 message 数组。
-
-        AstrBot 4.29.x 对部分 SnowLuma image 段的解析会失败，导致
-        event.get_messages() 为空，整条图片消息变成 [空消息]。
-        这里用原始段兜底，保证图片/文本/At 能进入合并转发。
-        """
-        raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
-        message = self._get_field(raw, "message")
-        if not isinstance(message, (list, tuple)):
-            dumped = self._as_dict(raw)
-            message = dumped.get("message")
-        if not isinstance(message, (list, tuple)):
-            logger.info(
-                "[private_forward] 原始消息无 message 数组: "
-                f"type={type(raw).__name__}, raw={str(raw)[:2000]}"
-            )
-            return []
-
+    def _message_list_to_segments(
+        self, message: list | tuple, event: AstrMessageEvent
+    ) -> list[dict]:
+        """把 OneBot message 数组转换成合并转发 segments。"""
         include_reply = self._get_bool("include_reply_text", True)
         max_reply_chars = self._get_int("max_reply_text_chars", 200)
 
@@ -204,8 +189,6 @@ class PrivateForwardPlugin(Star):
         for raw_seg in message:
             seg_type = str(self._get_field(raw_seg, "type", "") or "").lower()
             data = self._as_dict(self._get_field(raw_seg, "data", {}))
-            if not isinstance(data, dict):
-                data = {}
 
             if seg_type == "text":
                 text = str(data.get("text") or "")
@@ -256,12 +239,63 @@ class PrivateForwardPlugin(Star):
 
         return segments
 
+    def _raw_to_segments(self, event: AstrMessageEvent) -> list[dict]:
+        """直接读 OneBot 原始 message 数组。"""
+        raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        message = self._get_field(raw, "message")
+        if not isinstance(message, (list, tuple)):
+            dumped = self._as_dict(raw)
+            message = dumped.get("message")
+        if not isinstance(message, (list, tuple)):
+            logger.debug(
+                "[private_forward] 原始消息无 message 数组: "
+                f"type={type(raw).__name__}, raw={str(raw)[:2000]}"
+            )
+            return []
+        return self._message_list_to_segments(message, event)
+
+    async def _fetch_message_list(self, event: AstrMessageEvent) -> list | None:
+        """用 get_msg 按 message_id 重新拉取原始消息。
+
+        AstrBot 解析失败时，event.message_obj.message 和 raw_message 都可能
+        没有内容；SnowLuma 的消息存储里仍然可以按 message_id 取回原消息。
+        """
+        message_id = getattr(getattr(event, "message_obj", None), "message_id", None)
+        if message_id is None:
+            return None
+        raw_id = str(message_id).strip()
+        if not raw_id:
+            return None
+        try:
+            target_id: int | str = int(raw_id)
+        except ValueError:
+            target_id = raw_id
+
+        try:
+            result = await self._call_action(event, "get_msg", message_id=target_id)
+        except Exception as exc:
+            logger.info(f"[private_forward] get_msg 拉取原消息失败: {exc}")
+            return None
+
+        if isinstance(result, dict):
+            message = result.get("message")
+            if isinstance(message, (list, tuple)):
+                return list(message)
+        return None
+
     async def _to_segments(self, event: AstrMessageEvent) -> list[dict]:
         raw_segments = self._raw_to_segments(event)
         if raw_segments:
             return raw_segments
 
-        if not event.get_messages():
+        components = event.get_messages()
+        if not components:
+            fetched = await self._fetch_message_list(event)
+            if fetched:
+                fetched_segments = self._message_list_to_segments(fetched, event)
+                if fetched_segments:
+                    return fetched_segments
+
             raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
             logger.info(
                 "[private_forward] 空消息诊断: components 为空, "
@@ -272,7 +306,7 @@ class PrivateForwardPlugin(Star):
         include_reply = self._get_bool("include_reply_text", True)
         max_reply_chars = self._get_int("max_reply_text_chars", 200)
 
-        for comp in event.get_messages():
+        for comp in components:
             if isinstance(comp, Plain):
                 if comp.text:
                     segments.append(

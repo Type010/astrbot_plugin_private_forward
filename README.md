@@ -74,8 +74,11 @@ forward nesting depth exceeds 3
 - 引用消息（把被引用文本作为 `[引用] ...` 放进转发内容）
 - 表情/语音/视频/文件：以 `[表情]`、`[语音]`、`[视频]`、`[文件]` 占位
 
-> 插件优先读取 OneBot 原始 `message` 数组，而不是只依赖 AstrBot 解析后的组件。  
-> AstrBot 4.29.x 对部分 SnowLuma 图片段解析失败时，原始段兜底可以避免整条图片消息变成 `[空消息]`。
+> 插件按三层兜底解析消息：  
+> 1. `event.message_obj.raw_message["message"]`；  
+> 2. `get_msg(message_id)` 按消息 ID 重新拉取原始消息；  
+> 3. AstrBot 解析后的消息组件。  
+> AstrBot 4.29.x 对部分 SnowLuma 图片段解析失败时，前两层兜底可以避免整条图片消息变成 `[空消息]`。
 
 ## 隐藏发送者信息
 
@@ -147,7 +150,7 @@ SnowLuma 收到 `result=0` 但缺 `groupSequence`。这不一定代表已送达�
 `anonymous_user_id` 填了一个 QQ 不认的号时，可能拿不到发送回执。先试 `hide_sender_info=false` 确认正常发送，再换一个真实存在的、带头像要求的匿名 QQ 号，或填 `0` 让 SnowLuma 使用机器人自己的 QQ。注意填 0 会显示机器人头像。
 
 **合并转发里出现 `[空消息]`**  
-v1.4.0 起会优先读 OneBot 原始 `message` 数组兜底。如果仍然出现空消息，说明原始事件里没有可用的 message 段，或该消息类型完全没有内容；看 AstrBot 日志里是否有 `消息段解析失败`。
+v1.5.0 起会先读 `raw_message.message`，为空再用 `get_msg(message_id)` 重新拉原始消息。如果仍然空，说明 `get_msg` 也拿不到（消息不在 SnowLuma 存储、ID 无效或接口不支持）；看 AstrBot 日志里的 `[private_forward] get_msg 拉取原消息失败` 和 `空消息诊断`。
 
 **图片变成 `[图片]` 占位**  
 图片转换 base64 失败，或不是可访问的 http/base64 图片。看 AstrBot 日志里的 `[private_forward]` 调试信息。
