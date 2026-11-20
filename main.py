@@ -71,6 +71,20 @@ class PrivateForwardPlugin(Star):
     def _default_depth(self) -> int:
         return max(1, min(self._get_int("default_depth", 1), self._max_depth()))
 
+    def _hide_sender_info(self) -> bool:
+        return self._get_bool("hide_sender_info", False)
+
+    def _anonymous_user_id(self) -> int:
+        value = self._get_int("anonymous_user_id", 1_000_000_000)
+        # SnowLuma 会把 <=0 的 userUin 替换成机器人 QQ；这里强制用正数。
+        return value if value > 0 else 1_000_000_000
+
+    def _anonymous_nickname(self) -> str:
+        value = str(self.config.get("anonymous_nickname", "") or "")
+        # 纯空格会被 SnowLuma 的 trim() 去掉并回退成 QQ 号；
+        # 零宽空格不会被 trim，渲染出来是空白名称。
+        return value if value.strip() else "\u200b"
+
     # ---------------- OneBot 调用 ----------------
 
     async def _call_action(
@@ -171,13 +185,17 @@ class PrivateForwardPlugin(Star):
     async def _build_message_node(self, event: AstrMessageEvent) -> dict:
         """把一条私聊消息转换成合并转发里的一个 node。"""
         segments = await self._to_segments(event)
-        sender_id = str(event.get_sender_id())
-        user_id: int | str
-        try:
-            user_id = int(sender_id)
-        except ValueError:
-            user_id = sender_id
-        nickname = event.get_sender_name() or sender_id
+
+        if self._hide_sender_info():
+            user_id: int | str = self._anonymous_user_id()
+            nickname = self._anonymous_nickname()
+        else:
+            sender_id = str(event.get_sender_id())
+            try:
+                user_id = int(sender_id)
+            except ValueError:
+                user_id = sender_id
+            nickname = event.get_sender_name() or sender_id
 
         data: dict[str, Any] = {
             "user_id": user_id,
@@ -200,16 +218,21 @@ class PrivateForwardPlugin(Star):
         if session.depth <= 1:
             return nodes
 
-        try:
-            owner_uid: int | str = int(session.owner_id)
-        except ValueError:
-            owner_uid = session.owner_id
+        if self._hide_sender_info():
+            owner_uid: int | str = self._anonymous_user_id()
+            owner_name = self._anonymous_nickname()
+        else:
+            try:
+                owner_uid = int(session.owner_id)
+            except ValueError:
+                owner_uid = session.owner_id
+            owner_name = session.owner_name
 
         wrapper: dict = {
             "type": "node",
             "data": {
                 "user_id": owner_uid,
-                "nickname": session.owner_name,
+                "nickname": owner_name,
                 "content": nodes,
             },
         }
@@ -218,7 +241,7 @@ class PrivateForwardPlugin(Star):
                 "type": "node",
                 "data": {
                     "user_id": owner_uid,
-                    "nickname": session.owner_name,
+                    "nickname": owner_name,
                     "content": [wrapper],
                 },
             }

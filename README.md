@@ -68,6 +68,20 @@ forward nesting depth exceeds 3
 - 引用消息（把被引用文本作为 `[引用] ...` 放进转发内容）
 - 表情/语音/视频/文件：以 `[表情]`、`[语音]`、`[视频]`、`[文件]` 占位
 
+## 隐藏发送者信息
+
+配置 `hide_sender_info: true` 后，所有转发节点会：
+
+- `user_id` 改成 `anonymous_user_id`；
+- `nickname` 改成 `anonymous_nickname`，留空时使用零宽空格，显示为空白名称。
+
+注意：OneBot 的合并转发节点**没有头像字段**，QQ 客户端是根据 `user_id` 去拉头像的。  
+所以“默认头像”本质上是让 `user_id` 指向一个不存在/不在群里的 QQ 号，客户端拉不到头像时会显示默认灰色头像。默认填 `1000000000`，如果实际显示的不是默认头像，可以换一个不存在的 QQ 号再试。
+
+SnowLuma 会把 `user_id <= 0` 替换成机器人自己的 QQ，所以不要填 0，否则会显示机器人头像。
+
+另外，插件只改转发节点的元数据；如果你在消息正文或引用文本里自己打了 QQ 号/昵称，内容里仍然会显示。
+
 ## 配置
 
 在 AstrBot 插件配置里修改：
@@ -76,6 +90,9 @@ forward nesting depth exceeds 3
 |---|---|---|
 | `allowed_user_ids` | `[]` | 允许使用的 QQ；留空仅 AstrBot 管理员可用 |
 | `allowed_group_ids` | `[]` | 允许作为目标的群；留空不限制 |
+| `hide_sender_info` | `false` | 隐藏发送者 QQ 和头像，使用匿名节点 |
+| `anonymous_user_id` | `1000000000` | 匿名节点使用的 QQ 号，决定默认头像 |
+| `anonymous_nickname` | `""` | 匿名节点名称；留空用零宽空格 |
 | `default_depth` | `1` | 默认嵌套层数 |
 | `max_depth` | `3` | 最大嵌套层数，硬上限 3 |
 | `session_timeout_seconds` | `600` | 会话超时，超时后丢弃已收集但未发送的消息 |

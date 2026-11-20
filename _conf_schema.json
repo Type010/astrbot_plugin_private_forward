@@ -11,6 +11,24 @@
     "default": [],
     "hint": "留空表示不限制；建议只填写自己的群，避免被用来向任意群转发"
   },
+  "hide_sender_info": {
+    "description": "转发时隐藏发送者 QQ 和头像",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后所有转发节点使用匿名 QQ 号和空白昵称，不显示真实用户信息"
+  },
+  "anonymous_user_id": {
+    "description": "匿名转发使用的 QQ 号",
+    "type": "int",
+    "default": 1000000000,
+    "hint": "OneBot 转发节点没有头像字段，头像由这个 QQ 号决定。建议填一个不在目标群、也不存在的 QQ 号，让客户端显示默认头像；SnowLuma 不允许 0，0 会被替换成机器人 QQ"
+  },
+  "anonymous_nickname": {
+    "description": "匿名转发显示的名称",
+    "type": "string",
+    "default": "",
+    "hint": "留空时使用零宽空格，显示为空白名称；SnowLuma 会把纯空格 trim 掉并回退成 QQ 号"
+  },
   "default_depth": {
     "description": "默认嵌套层数",
     "type": "int",
