@@ -136,6 +136,22 @@ class PrivateForwardPlugin(Star):
         return None
 
     @staticmethod
+    def _get_field(obj: Any, key: str, default: Any = None) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    @staticmethod
+    def _as_dict(value: Any) -> dict:
+        if isinstance(value, dict):
+            return value
+        if hasattr(value, "model_dump"):
+            dumped = value.model_dump()
+            if isinstance(dumped, dict):
+                return dumped
+        return {}
+
+    @staticmethod
     def _raw_image_ref(data: dict) -> str | None:
         """从 OneBot 原始 image 段里取一个可用的图片引用。"""
         for key in ("url", "file"):
@@ -164,10 +180,15 @@ class PrivateForwardPlugin(Star):
         这里用原始段兜底，保证图片/文本/At 能进入合并转发。
         """
         raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
-        if not isinstance(raw, dict):
-            return []
-        message = raw.get("message")
-        if not isinstance(message, list):
+        message = self._get_field(raw, "message")
+        if not isinstance(message, (list, tuple)):
+            dumped = self._as_dict(raw)
+            message = dumped.get("message")
+        if not isinstance(message, (list, tuple)):
+            logger.info(
+                "[private_forward] 原始消息无 message 数组: "
+                f"type={type(raw).__name__}, raw={str(raw)[:2000]}"
+            )
             return []
 
         include_reply = self._get_bool("include_reply_text", True)
@@ -181,10 +202,8 @@ class PrivateForwardPlugin(Star):
 
         segments: list[dict] = []
         for raw_seg in message:
-            if not isinstance(raw_seg, dict):
-                continue
-            seg_type = str(raw_seg.get("type") or "").lower()
-            data = raw_seg.get("data")
+            seg_type = str(self._get_field(raw_seg, "type", "") or "").lower()
+            data = self._as_dict(self._get_field(raw_seg, "data", {}))
             if not isinstance(data, dict):
                 data = {}
 
@@ -241,6 +260,13 @@ class PrivateForwardPlugin(Star):
         raw_segments = self._raw_to_segments(event)
         if raw_segments:
             return raw_segments
+
+        if not event.get_messages():
+            raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+            logger.info(
+                "[private_forward] 空消息诊断: components 为空, "
+                f"raw_type={type(raw).__name__}, raw={str(raw)[:2000]}"
+            )
 
         segments: list[dict] = []
         include_reply = self._get_bool("include_reply_text", True)
