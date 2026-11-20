@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from astrbot.api import logger
@@ -21,8 +21,10 @@ class ForwardSession:
     group_id: str
     depth: int
     expires_at: float
-    last_sent_at: float = 0.0
-    count: int = 0
+    owner_id: str
+    owner_name: str
+    messages: list[dict] = field(default_factory=list)
+    limit_notified: bool = False
 
 
 class PrivateForwardPlugin(Star):
@@ -166,9 +168,8 @@ class PrivateForwardPlugin(Star):
 
         return segments or [{"type": "text", "data": {"text": "[空消息]"}}]
 
-    async def _build_nodes(
-        self, event: AstrMessageEvent, depth: int
-    ) -> list[dict]:
+    async def _build_message_node(self, event: AstrMessageEvent) -> dict:
+        """把一条私聊消息转换成合并转发里的一个 node。"""
         segments = await self._to_segments(event)
         sender_id = str(event.get_sender_id())
         user_id: int | str
@@ -178,27 +179,50 @@ class PrivateForwardPlugin(Star):
             user_id = sender_id
         nickname = event.get_sender_name() or sender_id
 
-        node: dict = {
+        data: dict[str, Any] = {
+            "user_id": user_id,
+            "nickname": nickname,
+            "content": segments,
+        }
+        timestamp = getattr(getattr(event, "message_obj", None), "timestamp", None)
+        if isinstance(timestamp, int) and 0 < timestamp < 2**32:
+            data["time"] = timestamp
+
+        return {"type": "node", "data": data}
+
+    def _build_merged_messages(self, session: ForwardSession) -> list[dict]:
+        """把会话里收集的所有消息合并成一个（可嵌套的）合并转发。
+
+        depth=1：所有消息 node 直接作为合并转发的 messages。
+        depth=2/3：用一个/两个外层 node 把整批消息包起来。
+        """
+        nodes = list(session.messages)
+        if session.depth <= 1:
+            return nodes
+
+        try:
+            owner_uid: int | str = int(session.owner_id)
+        except ValueError:
+            owner_uid = session.owner_id
+
+        wrapper: dict = {
             "type": "node",
             "data": {
-                "user_id": user_id,
-                "nickname": nickname,
-                "content": segments,
+                "user_id": owner_uid,
+                "nickname": session.owner_name,
+                "content": nodes,
             },
         }
-
-        # depth=1：单层合并转发；depth=2/3：再套 1/2 层 node。
-        for _ in range(max(0, depth - 1)):
-            node = {
+        for _ in range(session.depth - 2):
+            wrapper = {
                 "type": "node",
                 "data": {
-                    "user_id": user_id,
-                    "nickname": nickname,
-                    "content": [node],
+                    "user_id": owner_uid,
+                    "nickname": session.owner_name,
+                    "content": [wrapper],
                 },
             }
-
-        return [node]
+        return [wrapper]
 
     # ---------------- 会话展示 ----------------
 
@@ -208,17 +232,18 @@ class PrivateForwardPlugin(Star):
         return (
             f"目标群：{session.group_id}\n"
             f"嵌套层数：{session.depth}\n"
-            f"已转发：{session.count} 条\n"
-            f"剩余时间：{remain} 秒"
+            f"已收集：{len(session.messages)} 条\n"
+            f"剩余时间：{remain} 秒\n"
+            f"发送“结束转发”后才会合并发送。"
         )
 
     @staticmethod
     def _usage() -> str:
         return (
             "用法：\n"
-            "转发 <群号> [嵌套层数 1-3]\n"
-            "结束转发 / 停止转发\n"
-            "转发状态"
+            "转发 <群号> [嵌套层数 1-3]   开始收集消息\n"
+            "结束转发 / 停止转发           把已收集消息合并发送到目标群\n"
+            "转发状态                     查看已收集条数"
         )
 
     # ---------------- 指令 ----------------
@@ -263,6 +288,16 @@ class PrivateForwardPlugin(Star):
             event.stop_event()
             return
 
+        owner_id = str(event.get_sender_id())
+        existing = self.sessions.get(owner_id)
+        if existing and existing.messages:
+            yield event.plain_result(
+                f"已有未发送的转发会话（{len(existing.messages)} 条），"
+                "请先发送“结束转发”。"
+            )
+            event.stop_event()
+            return
+
         if not self._is_allowed_group(group_id):
             yield event.plain_result(f"不允许转发到群 {group_id}。")
             event.stop_event()
@@ -285,10 +320,12 @@ class PrivateForwardPlugin(Star):
 
         now = time.time()
         timeout = max(30, self._get_int("session_timeout_seconds", 600))
-        self.sessions[str(event.get_sender_id())] = ForwardSession(
+        self.sessions[owner_id] = ForwardSession(
             group_id=group_id,
             depth=selected_depth,
             expires_at=now + timeout,
+            owner_id=owner_id,
+            owner_name=event.get_sender_name() or owner_id,
         )
 
         note = ""
@@ -296,29 +333,70 @@ class PrivateForwardPlugin(Star):
             note = f"\n（请求层数 {depth} 超过上限，已改为 {max_depth} 层）"
 
         yield event.plain_result(
-            f"已开启转发：\n"
+            f"已开始收集消息：\n"
             f"目标群：{group_id}\n"
             f"嵌套层数：{selected_depth}\n"
-            f"发送“结束转发”停止。{note}"
+            f"发送完请发“结束转发”，届时会把本次收集的消息合并成一条转发发送。{note}"
         )
         event.stop_event()
 
     @filter.command("结束转发", alias={"停止转发"})
     @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP)
     async def stop_forward(self, event: AstrMessageEvent):
-        """结束转发会话"""
+        """结束收集并合并发送"""
         if not event.is_private_chat():
             yield event.plain_result("请在私聊中使用“结束转发”。")
             event.stop_event()
             return
 
-        removed = self.sessions.pop(str(event.get_sender_id()), None)
-        if removed:
-            yield event.plain_result(
-                f"已结束转发，本次共转发 {removed.count} 条消息。"
-            )
-        else:
+        user_id = str(event.get_sender_id())
+        session = self.sessions.get(user_id)
+        if not session:
             yield event.plain_result("当前没有进行中的转发会话。")
+            event.stop_event()
+            return
+
+        if time.time() > session.expires_at:
+            count = len(session.messages)
+            self.sessions.pop(user_id, None)
+            yield event.plain_result(
+                f"转发会话已超时，{count} 条消息未发送。"
+            )
+            event.stop_event()
+            return
+
+        if not session.messages:
+            self.sessions.pop(user_id, None)
+            yield event.plain_result("没有收集到消息，会话已结束。")
+            event.stop_event()
+            return
+
+        count = len(session.messages)
+        try:
+            await self._call_action(
+                event,
+                "send_group_forward_msg",
+                group_id=int(session.group_id),
+                messages=self._build_merged_messages(session),
+            )
+        except Exception as exc:
+            session.expires_at = time.time() + max(
+                30, self._get_int("session_timeout_seconds", 600)
+            )
+            logger.error(
+                f"[private_forward] 合并转发到群 {session.group_id} 失败: {exc}"
+            )
+            yield event.plain_result(
+                f"合并转发失败：{exc}\n消息仍保留，可再次发送“结束转发”重试。"
+            )
+            event.stop_event()
+            return
+
+        self.sessions.pop(user_id, None)
+        yield event.plain_result(
+            f"已合并转发 {count} 条消息到群 {session.group_id}"
+            f"（嵌套 {session.depth} 层）。"
+        )
         event.stop_event()
 
     @filter.command("转发状态")
@@ -334,8 +412,11 @@ class PrivateForwardPlugin(Star):
         if not session:
             yield event.plain_result("当前没有进行中的转发会话。")
         elif time.time() > session.expires_at:
+            count = len(session.messages)
             self.sessions.pop(str(event.get_sender_id()), None)
-            yield event.plain_result("转发会话已超时，请重新开启。")
+            yield event.plain_result(
+                f"转发会话已超时，{count} 条消息未发送。"
+            )
         else:
             yield event.plain_result(self._status_text(session))
         event.stop_event()
@@ -360,49 +441,38 @@ class PrivateForwardPlugin(Star):
 
         now = time.time()
         if now > session.expires_at:
+            count = len(session.messages)
             self.sessions.pop(user_id, None)
             yield event.plain_result(
-                "转发会话已超时，请重新发送“转发 <群号> [层数]”。"
+                f"转发会话已超时，{count} 条消息未发送。"
             )
             event.stop_event()
             return
 
         max_messages = self._get_int("max_messages_per_session", 50)
-        if max_messages > 0 and session.count >= max_messages:
-            self.sessions.pop(user_id, None)
-            yield event.plain_result(
-                f"本次转发已达到 {max_messages} 条上限，会话已结束。"
-            )
-            event.stop_event()
-            return
-
-        min_interval = max(0, self._get_int("min_interval_seconds", 2))
-        if min_interval and now - session.last_sent_at < min_interval:
+        if max_messages > 0 and len(session.messages) >= max_messages:
+            if not session.limit_notified:
+                session.limit_notified = True
+                yield event.plain_result(
+                    f"已达到 {max_messages} 条上限，请发送“结束转发”合并发送。"
+                )
             event.stop_event()
             return
 
         try:
-            nodes = await self._build_nodes(event, session.depth)
-            await self._call_action(
-                event,
-                "send_group_forward_msg",
-                group_id=int(session.group_id),
-                messages=nodes,
-            )
+            session.messages.append(await self._build_message_node(event))
         except Exception as exc:
-            logger.error(f"[private_forward] 转发到群 {session.group_id} 失败: {exc}")
-            yield event.plain_result(f"转发失败：{exc}")
+            logger.error(f"[private_forward] 收集消息失败: {exc}")
+            yield event.plain_result(f"收集消息失败：{exc}")
             event.stop_event()
             return
 
-        session.last_sent_at = now
-        session.count += 1
         session.expires_at = now + max(
             30, self._get_int("session_timeout_seconds", 600)
         )
 
         if self._get_bool("send_ack", False):
-            yield event.plain_result("已转发")
+            yield event.plain_result(f"已收集第 {len(session.messages)} 条。")
         event.stop_event()
 
     async def terminate(self):

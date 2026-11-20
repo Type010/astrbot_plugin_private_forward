@@ -20,7 +20,7 @@
       "max": 3,
       "step": 1
     },
-    "hint": "发送“转发 <群号>”不写层数时使用"
+    "hint": "发送“转发 <群号>”不写层数时使用；层数作用于整批合并转发"
   },
   "max_depth": {
     "description": "最大嵌套层数",
@@ -37,19 +37,13 @@
     "description": "转发会话超时时间（秒）",
     "type": "int",
     "default": 600,
-    "hint": "超时后需要重新发送“转发”开启"
-  },
-  "min_interval_seconds": {
-    "description": "同一用户两条转发之间的最小间隔（秒）",
-    "type": "int",
-    "default": 2,
-    "hint": "防止连续刷屏；设为 0 关闭限速"
+    "hint": "超时后会话结束，已收集但未发送的消息会被丢弃"
   },
   "max_messages_per_session": {
-    "description": "单次会话最多转发消息数",
+    "description": "单次会话最多收集消息数",
     "type": "int",
     "default": 50,
-    "hint": "达到上限后自动结束会话；设为 0 表示不限制"
+    "hint": "达到上限后停止收集，需发送“结束转发”合并发送；设为 0 表示不限制"
   },
   "include_reply_text": {
     "description": "转发时附带被引用消息的文本",
@@ -63,9 +57,9 @@
     "hint": "超过后截断，避免单条转发内容过长"
   },
   "send_ack": {
-    "description": "每次转发成功后私聊回复“已转发”",
+    "description": "每收集一条消息后私聊回复条数",
     "type": "bool",
     "default": false,
-    "hint": "开启后每条消息都会多一条私聊回复"
+    "hint": "开启后每发一条消息都会多一条私聊回复"
   }
 }
